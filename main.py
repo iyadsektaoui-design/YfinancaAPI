@@ -50,23 +50,38 @@ def _build_candles(yf_symbol: str, days: int):
     return candles
 
 @app.get("/{ticker}")
-def get_stock(ticker: str, days: int = 30):
+@app.get("/{ticker}")
+def get_stock(ticker: str, days: int = 60):
     t = ticker.strip().upper()
     
-    # تصحيح رمز المازي
-    if t == "MASI":
-        yf_symbol = "MASI.CAS" # جرب هذا الرمز الجديد أو ^MASI
-    elif not t.endswith(".MA") and t not in ["MSFT", "AAPL"]:
-        yf_symbol = f"{t}.MA"
-    else:
+    # 1. إذا كان الرمز مؤشراً عالمياً (يبدأ بـ ^) مثل ^IXIC أو ^MASI
+    if t.startswith("^"):
         yf_symbol = t
+    
+    # 2. إذا كان المستخدم أدخل الرمز بالكامل (يحتوي على نقطة) مثل IAM.MA أو MSFT
+    elif "." in t:
+        yf_symbol = t
+        
+    # 3. إذا كان الرمز من الأسهم العالمية المشهورة (بدون نقطة)
+    elif t in ["MSFT", "AAPL", "GOOGL", "TSLA", "NVDA", "BTC-USD"]:
+        yf_symbol = t
+        
+    # 4. حالة خاصة لمؤشر المازي (إذا كتبه المستخدم بدون ^)
+    elif t == "MASI":
+        yf_symbol = "^MASI"
+        
+    # 5. أي شيء آخر غير ما سبق، نعتبره سهماً مغربياً ونضيف له .MA
+    else:
+        yf_symbol = f"{t}.MA"
 
     try:
         candles = _build_candles(yf_symbol, days)
-        return {"ticker": t, "yf_symbol": yf_symbol, "candles": candles}
+        return {
+            "ticker": t,
+            "yf_symbol": yf_symbol,
+            "count": len(candles),
+            "candles": candles
+        }
     except Exception as e:
-        # إذا فشل MASI.CAS جرب ^MASI تلقائياً
-        if t == "MASI":
-             candles = _build_candles("^MASI", days)
-             return {"ticker": t, "yf_symbol": "^MASI", "candles": candles}
-        raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
