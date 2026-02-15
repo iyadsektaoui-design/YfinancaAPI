@@ -64,7 +64,7 @@ def _build_candles(yf_symbol: str, days: int):
 
 @app.get("/")
 def home():
-    return {"message": "API بورصة الدار البيضاء تعملdef _build_candles(yf_symbol: str, days: int):
+    return {"message": "API  بورصة الدار البيضاء تعمل بنجاح تام 15/02//2026def _build_candles(yf_symbol: str, days: int):
     """جلب بيانات يومية من yfinance وتحويلها إلى شموع قياسية."""
     if days <= 0:
         raise HTTPException(status_code=400, detail="days must be > 0")
@@ -152,3 +152,4 @@ def get_stock(ticker: str, days: int = 365):
         "candles": candles,
 
     }
+
