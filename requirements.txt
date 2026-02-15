@@ -2,3 +2,7 @@ fastapi
 uvicorn[standard]
 yfinance
 pandas
+yfinance>=0.2.40
+fastapi
+uvicorn
+pandas
