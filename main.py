@@ -51,37 +51,44 @@ def _build_candles(yf_symbol: str, days: int):
 
 @app.get("/{ticker}")
 @app.get("/{ticker}")
+@app.get("/{ticker}")
 def get_stock(ticker: str, days: int = 60):
-    t = ticker.strip().upper()
+    t = ticker.strip() # نتركها كما هي للتحقق من الرموز الحساسة
+    upper_t = t.upper()
     
-    # 1. إذا كان الرمز مؤشراً عالمياً (يبدأ بـ ^) مثل ^IXIC أو ^MASI
+    # 1. إذا كان الرمز يبدأ بـ ^ (مثل ^IXIC أو ^MASI) نتركه كما هو تمامًا
     if t.startswith("^"):
         yf_symbol = t
     
-    # 2. إذا كان المستخدم أدخل الرمز بالكامل (يحتوي على نقطة) مثل IAM.MA أو MSFT
+    # 2. إذا كان المستخدم كتب MASI صراحة (بدون علامة ^)
+    elif upper_t == "MASI":
+        yf_symbol = "^MASI"
+        
+    # 3. إذا كان الرمز يحتوي بالفعل على نقطة (مثل IAM.MA أو MSFT)
     elif "." in t:
         yf_symbol = t
         
-    # 3. إذا كان الرمز من الأسهم العالمية المشهورة (بدون نقطة)
-    elif t in ["MSFT", "AAPL", "GOOGL", "TSLA", "NVDA", "BTC-USD"]:
-        yf_symbol = t
+    # 4. إذا كان رمزًا عالميًا مشهورًا (قائمة بيضاء)
+    elif upper_t in ["MSFT", "AAPL", "GOOGL", "TSLA", "NVDA"]:
+        yf_symbol = upper_t
         
-    # 4. حالة خاصة لمؤشر المازي (إذا كتبه المستخدم بدون ^)
-    elif t == "MASI":
-        yf_symbol = "^MASI"
-        
-    # 5. أي شيء آخر غير ما سبق، نعتبره سهماً مغربياً ونضيف له .MA
+    # 5. أي حالة أخرى نعتبرها سهمًا مغربيًا ونضيف .MA
     else:
-        yf_symbol = f"{t}.MA"
+        yf_symbol = f"{upper_t}.MA"
 
     try:
+        # استدعاء الدالة التي تتضمن سطر الـ Flattening (تسطيح الأعمدة)
         candles = _build_candles(yf_symbol, days)
         return {
-            "ticker": t,
+            "ticker": upper_t,
             "yf_symbol": yf_symbol,
             "count": len(candles),
             "candles": candles
         }
     except Exception as e:
+        # إرجاع تفاصيل الخطأ الحقيقية للمساعدة في التشخيص
         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
