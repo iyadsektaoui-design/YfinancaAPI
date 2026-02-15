@@ -1,155 +1,72 @@
-# main.py
-from datetime import datetime, timedelta, timezone
-
+import pandas as pd
 import yfinance as yf
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from pandas import MultiIndex
+from datetime import datetime, timedelta, timezone
 
-app = FastAPI(title="CasaBourse YFinance API", version="0.1.0")
-
-# السماح لـ Flutter بالوصول للـ API من أي دومين (يمكنك تضييقها لاحقًا)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+app = FastAPI()
 
 def _build_candles(yf_symbol: str, days: int):
-    """جلب بيانات يومية من yfinance وتحويلها إلى شموع قياسية."""
-    if days <= 0:
-        raise HTTPException(status_code=400, detail="days must be > 0")
-
+    # 1. إعداد التاريخ
     end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
+    start = end - timedelta(days=days + 10)
 
-    df = yf.download(
-        yf_symbol,
+    # 2. جلب البيانات باستخدام Ticker بدلاً من download مباشرة (أكثر استقراراً)
+    ticker_obj = yf.Ticker(yf_symbol)
+    
+    # محاولة جلب البيانات التاريخية
+    df = ticker_obj.history(
         start=start.date().isoformat(),
         end=end.date().isoformat(),
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
+        interval="1d"
     )
 
+    # 3. معالجة مشكلة الـ MultiIndex (التسطيح)
+    if isinstance(df.columns, MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 4. إذا كانت البيانات فارغة (مشكلة MASI الشائعة)
     if df.empty:
-        raise HTTPException(status_code=404, detail="No data for this ticker")
+        # محاولة أخيرة باستخدام period بدلاً من التواريخ الصارمة
+        df = ticker_obj.history(period="1mo")
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No data found for {yf_symbol} on Yahoo Finance")
+        
+        if isinstance(df.columns, MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
-    # إزالة الصفوف الناقصة
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    # 5. تنظيف وتجهيز البيانات
     df = df.sort_index()
-
     candles = []
     for ts, row in df.iterrows():
-        # تحويل التاريخ إلى ISO 8601 حتى يقرأه Dart بسهولة
-        dt = ts.to_pydatetime().replace(tzinfo=timezone.utc)
-        candles.append(
-            {
-                "time": dt.isoformat(),
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-                "volume": float(row.get("Volume", 0) or 0),
-            }
-        )
-
-    if not candles:
-        raise HTTPException(status_code=404, detail="No candles parsed")
-
+        candles.append({
+            "time": ts.strftime('%Y-%m-%d'),
+            "open": float(row["Open"]),
+            "high": float(row["High"]),
+            "low": float(row["Low"]),
+            "close": float(row["Close"]),
+            "volume": float(row.get("Volume", 0))
+        })
     return candles
 
-
-@app.get("/")
-def home():
-    return {"message": "API  بورصة الدار البيضاء تعمل بنجاح تام 15/02//2026def _build_candles(yf_symbol: str, days: int):
-    """جلب بيانات يومية من yfinance وتحويلها إلى شموع قياسية."""
-    if days <= 0:
-        raise HTTPException(status_code=400, detail="days must be > 0")
-
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
-
-    df = yf.download(
-        yf_symbol,
-        start=start.date().isoformat(),
-        end=end.date().isoformat(),
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-    )
-
-    # لا توجد أي بيانات
-    if df is None or df.empty:
-        raise HTTPException(status_code=404, detail="No data for this ticker")
-
-    cols = list(df.columns)
-
-    # إذا لم تكن أعمدة OHLC موجودة نحاول استعمال Adj Close
-    if not all(c in cols for c in ["Open", "High", "Low", "Close"]):
-        if "Adj Close" in cols:
-            adj = df["Adj Close"]
-            df = df.copy()
-            df["Open"] = adj
-            df["High"] = adj
-            df["Low"] = adj
-            df["Close"] = adj
-        else:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Upstream data missing OHLC columns. Got columns: {cols}",
-            )
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    df = df.sort_index()
-
-    candles = []
-    for ts, row in df.iterrows():
-        dt = ts.to_pydatetime().replace(tzinfo=timezone.utc)
-        candles.append(
-            {
-                "time": dt.isoformat(),
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-                "volume": float(row.get("Volume", 0) or 0),
-            }
-        )
-
-    if not candles:
-        raise HTTPException(status_code=404, detail="No candles parsed")
-
-    return candles بنجاح!"}
-
-
-@app.get("/stock/{ticker}")
-def get_stock(ticker: str, days: int = 365):
-    """
-    مثال:
-    - /stock/MASI        → يستعمل رمز ^MASI في Yahoo
-    - /stock/^GSPC      → أي رمز آخر كما هو
-    - /stock/MASI?days=1095  → آخر 3 سنوات تقريبًا
-    """
-    t = ticker.strip()
-
-    # تحويل MASI إلى الرمز المستعمل في Yahoo Finance إذا لزم الأمر
-    if t.upper() == "MASI":
-        yf_symbol = "^MASI"  # غيّره إذا استعملت رمزًا آخر في yfinance
+@app.get("/{ticker}")
+def get_stock(ticker: str, days: int = 30):
+    t = ticker.strip().upper()
+    
+    # تصحيح رمز المازي
+    if t == "MASI":
+        yf_symbol = "MASI.CAS" # جرب هذا الرمز الجديد أو ^MASI
+    elif not t.endswith(".MA") and t not in ["MSFT", "AAPL"]:
+        yf_symbol = f"{t}.MA"
     else:
         yf_symbol = t
 
-    candles = _build_candles(yf_symbol, days)
-
-    return {
-        "ticker": t.upper(),
-        "yf_symbol": yf_symbol,
-        "source": "yfinance",
-        "days": days,
-        "count": len(candles),
-        "candles": candles,
-
-    }
-
+    try:
+        candles = _build_candles(yf_symbol, days)
+        return {"ticker": t, "yf_symbol": yf_symbol, "candles": candles}
+    except Exception as e:
+        # إذا فشل MASI.CAS جرب ^MASI تلقائياً
+        if t == "MASI":
+             candles = _build_candles("^MASI", days)
+             return {"ticker": t, "yf_symbol": "^MASI", "candles": candles}
+        raise e
