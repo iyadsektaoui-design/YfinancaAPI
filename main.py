@@ -64,7 +64,65 @@ def _build_candles(yf_symbol: str, days: int):
 
 @app.get("/")
 def home():
-    return {"message": "API بورصة الدار البيضاء تعمل بنجاح!"}
+    return {"message": "API بورصة الدار البيضاء تعملdef _build_candles(yf_symbol: str, days: int):
+    """جلب بيانات يومية من yfinance وتحويلها إلى شموع قياسية."""
+    if days <= 0:
+        raise HTTPException(status_code=400, detail="days must be > 0")
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    df = yf.download(
+        yf_symbol,
+        start=start.date().isoformat(),
+        end=end.date().isoformat(),
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+    )
+
+    # لا توجد أي بيانات
+    if df is None or df.empty:
+        raise HTTPException(status_code=404, detail="No data for this ticker")
+
+    cols = list(df.columns)
+
+    # إذا لم تكن أعمدة OHLC موجودة نحاول استعمال Adj Close
+    if not all(c in cols for c in ["Open", "High", "Low", "Close"]):
+        if "Adj Close" in cols:
+            adj = df["Adj Close"]
+            df = df.copy()
+            df["Open"] = adj
+            df["High"] = adj
+            df["Low"] = adj
+            df["Close"] = adj
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Upstream data missing OHLC columns. Got columns: {cols}",
+            )
+
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    df = df.sort_index()
+
+    candles = []
+    for ts, row in df.iterrows():
+        dt = ts.to_pydatetime().replace(tzinfo=timezone.utc)
+        candles.append(
+            {
+                "time": dt.isoformat(),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": float(row.get("Volume", 0) or 0),
+            }
+        )
+
+    if not candles:
+        raise HTTPException(status_code=404, detail="No candles parsed")
+
+    return candles بنجاح!"}
 
 
 @app.get("/stock/{ticker}")
@@ -92,4 +150,5 @@ def get_stock(ticker: str, days: int = 365):
         "days": days,
         "count": len(candles),
         "candles": candles,
+
     }
