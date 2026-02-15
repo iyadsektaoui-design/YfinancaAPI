@@ -6,36 +6,47 @@ from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
-def _build_candles(yf_symbol: str, days: int):
-    # 1. إعداد التاريخ
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days + 10)
+import requests
 
-    # 2. جلب البيانات باستخدام Ticker بدلاً من download مباشرة (أكثر استقراراً)
-    ticker_obj = yf.Ticker(yf_symbol)
+def _build_candles(yf_symbol: str, days: int):
+    if days <= 0:
+        raise HTTPException(status_code=400, detail="days must be > 0")
+
+    # 1. إنشاء جلسة وهمية تظهر كأنها متصفح Chrome عادي
+    # هذا السطر ضروري جداً لبورصة المغرب
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    })
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days + 15) # زيادة الهامش لتجنب العطلات
+
+    # 2. نمرر الجلسة (session) إلى yfinance
+    ticker_obj = yf.Ticker(yf_symbol, session=session)
     
-    # محاولة جلب البيانات التاريخية
+    # 3. نستخدم history بدلاً من download لأنها أكثر توافقاً مع الجلسات
     df = ticker_obj.history(
         start=start.date().isoformat(),
         end=end.date().isoformat(),
         interval="1d"
     )
 
-    # 3. معالجة مشكلة الـ MultiIndex (التسطيح)
+    # تسطيح الأعمدة (Flattening)
     if isinstance(df.columns, MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # 4. إذا كانت البيانات فارغة (مشكلة MASI الشائعة)
+    # 4. محاولة بديلة إذا كانت البيانات فارغة (خاص بالمازي)
     if df.empty:
-        # محاولة أخيرة باستخدام period بدلاً من التواريخ الصارمة
         df = ticker_obj.history(period="1mo")
-        if df.empty:
-            raise HTTPException(status_code=404, detail=f"No data found for {yf_symbol} on Yahoo Finance")
-        
         if isinstance(df.columns, MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-    # 5. تنظيف وتجهيز البيانات
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No data for {yf_symbol}")
+
+    # ترتيب البيانات وتحويلها لـ JSON
     df = df.sort_index()
     candles = []
     for ts, row in df.iterrows():
@@ -45,10 +56,10 @@ def _build_candles(yf_symbol: str, days: int):
             "high": float(row["High"]),
             "low": float(row["Low"]),
             "close": float(row["Close"]),
-            "volume": float(row.get("Volume", 0))
+            "volume": float(row.get("Volume", 0) or 0),
         })
-    return candles
 
+    return candles
 @app.get("/{ticker}")
 @app.get("/{ticker}")
 @app.get("/{ticker}")
@@ -90,5 +101,6 @@ def get_stock(ticker: str, days: int = 60):
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
